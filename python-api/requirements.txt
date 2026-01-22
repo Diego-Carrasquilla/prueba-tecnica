@@ -1,12 +1,9 @@
 fastapi
 uvicorn[standard]
 pydantic
-pydantic-settings
+python-dotenv
 supabase
 langchain
-langchain-huggingface
 langchain-community
 huggingface-hub
-transformers
-torch
-python-dotenv
+requests

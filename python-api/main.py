@@ -8,10 +8,10 @@ import os
 import logging
 from dotenv import load_dotenv
 from supabase import create_client, Client
-from langchain_huggingface import HuggingFaceEndpoint
+from huggingface_hub import InferenceClient
 from langchain.prompts import PromptTemplate
 from langchain.output_parsers import PydanticOutputParser
-from langchain_core.exceptions import OutputParserException
+import json
 
 load_dotenv()
 
@@ -96,18 +96,15 @@ except Exception as e:
     logger.error(f"Failed to initialize Supabase client: {e}")
     raise ConfigurationError(f"Supabase initialization failed: {e}")
 
-# LLM Configuration
+# LLM Configuration - usando Inference API de Hugging Face
 try:
-    llm = HuggingFaceEndpoint(
-        repo_id="openai/gpt-oss-20b",
-        temperature=0.1,
-        max_new_tokens=128,
-        huggingfacehub_api_token=os.getenv("HUGGINGFACE_API_TOKEN", "")
+    hf_client = InferenceClient(
+        token=os.getenv("HUGGINGFACE_API_TOKEN", "")
     )
-    logger.info("LLM initialized successfully")
+    logger.info("Hugging Face client initialized")
 except Exception as e:
-    logger.error(f"Failed to initialize LLM: {e}")
-    raise ConfigurationError(f"LLM initialization failed: {e}")
+    logger.error(f"Failed to initialize HF client: {e}")
+    raise ConfigurationError(f"HF client initialization failed: {e}")
 
 
 # Modelos Pydantic
@@ -169,10 +166,8 @@ class TicketListResponse(BaseModel):
 # Función de análisis - procesa ticket con LLM y retorna categoría y sentimiento
 def analyze_ticket_with_llm(description: str) -> TicketAnalysis:
     try:
-        parser = PydanticOutputParser(pydantic_object=TicketAnalysis)
-        
-        prompt = PromptTemplate(
-            template="""Analyze ticket. Output JSON only.
+        # Prompt optimizado
+        prompt = f"""Analyze ticket. Output JSON only.
 
 Categories:
 - Técnico: tech issues, bugs, system errors
@@ -184,26 +179,45 @@ Sentiment:
 - Neutral: informative
 - Negativo: frustrated, angry
 
-{format_instructions}
-
 Ticket: {description}
 
-JSON:""",
-            input_variables=["description"],
-            partial_variables={"format_instructions": parser.get_format_instructions()}
-        )
-        
-        chain = prompt | llm | parser
+Output JSON with keys: category, sentiment"""
         
         logger.info(f"Analyzing ticket: {description[:50]}...")
-        result = chain.invoke({"description": description})
-        logger.info(f"Analysis complete: {result.category}, {result.sentiment}")
         
+        # Llamada a la API de Hugging Face
+        response = hf_client.text_generation(
+            prompt,
+            model="mistralai/Mixtral-8x7B-Instruct-v0.1",
+            max_new_tokens=100,
+            temperature=0.1
+        )
+        
+        # Extraer JSON de la respuesta
+        try:
+            # Buscar JSON en la respuesta
+            response_text = response.strip()
+            if '{' in response_text:
+                json_start = response_text.index('{')
+                json_end = response_text.rindex('}') + 1
+                json_str = response_text[json_start:json_end]
+                result_dict = json.loads(json_str)
+                
+                result = TicketAnalysis(
+                    category=result_dict.get("category", "Comercial"),
+                    sentiment=result_dict.get("sentiment", "Neutral")
+                )
+            else:
+                # Fallback si no hay JSON
+                result = TicketAnalysis(category="Comercial", sentiment="Neutral")
+                
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.warning(f"Failed to parse JSON, using defaults: {e}")
+            result = TicketAnalysis(category="Comercial", sentiment="Neutral")
+        
+        logger.info(f"Analysis complete: {result.category}, {result.sentiment}")
         return result
         
-    except OutputParserException as e:
-        logger.error(f"Failed to parse LLM output: {e}")
-        raise LLMAnalysisError(f"Invalid LLM response format: {e}")
     except Exception as e:
         logger.error(f"LLM analysis failed: {e}")
         raise LLMAnalysisError(f"LLM analysis error: {str(e)}")
