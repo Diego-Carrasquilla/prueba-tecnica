@@ -32,7 +32,7 @@ N8N_WEBHOOK_PROD = "https://n8n.srv1241518.hstgr.cloud/webhook/a7978e25-8e19-483
 CORS_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:5173",
-    "https://*.vercel.app",
+    "https://prueba-tecnica-git-main-diego-carrasquillas-projects.vercel.app",
     # "*"  # SECURITY: Wildcard disabled for production. Use specific domain instead.
 ]
 
