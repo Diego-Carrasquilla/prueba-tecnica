@@ -121,6 +121,7 @@ def setup_routes(supabase: Client) -> APIRouter:
                     description=description,
                     category=ticket_data.get("category"),
                     sentiment=ticket_data.get("sentiment"),
+                    confidence=ticket_data.get("confidence"),
                     processed=True,
                     message="Ticket already processed (idempotent response)"
                 )
@@ -175,6 +176,7 @@ def setup_routes(supabase: Client) -> APIRouter:
                 description=ticket_data["description"],
                 category=ticket_data["category"],
                 sentiment=ticket_data["sentiment"],
+                confidence=ticket_data.get("confidence"),
                 processed=ticket_data["processed"],
                 message="Ticket processed and updated successfully"
             )

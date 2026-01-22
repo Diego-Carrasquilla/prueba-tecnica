@@ -65,6 +65,7 @@ class TicketResponse(BaseModel):
     description: str
     category: Optional[str] = None
     sentiment: Optional[str] = None
+    confidence: Optional[float] = None
     processed: bool
     message: str
 
