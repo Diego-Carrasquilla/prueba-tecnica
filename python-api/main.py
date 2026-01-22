@@ -8,7 +8,7 @@ import os
 import logging
 from dotenv import load_dotenv
 from supabase import create_client, Client
-from huggingface_hub import InferenceClient
+import requests
 import json
 
 load_dotenv()
@@ -94,15 +94,10 @@ except Exception as e:
     logger.error(f"Failed to initialize Supabase client: {e}")
     raise ConfigurationError(f"Supabase initialization failed: {e}")
 
-# LLM Configuration - usando Inference API de Hugging Face
-try:
-    hf_client = InferenceClient(
-        token=os.getenv("HUGGINGFACE_API_TOKEN", "")
-    )
-    logger.info("Hugging Face client initialized")
-except Exception as e:
-    logger.error(f"Failed to initialize HF client: {e}")
-    raise ConfigurationError(f"HF client initialization failed: {e}")
+# LLM Configuration - API directa de Hugging Face
+HF_API_TOKEN = os.getenv("HUGGINGFACE_API_TOKEN", "")
+HF_API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
+logger.info("Hugging Face API configured")
 
 
 # Modelos Pydantic
@@ -164,61 +159,126 @@ class TicketListResponse(BaseModel):
 # Función de análisis - procesa ticket con LLM y retorna categoría y sentimiento
 def analyze_ticket_with_llm(description: str) -> TicketAnalysis:
     try:
-        # Prompt optimizado
-        prompt = f"""Analyze ticket. Output JSON only.
-
-Categories:
-- Técnico: tech issues, bugs, system errors
-- Facturación: billing, payments, invoices
-- Comercial: sales, products, inquiries
-
-Sentiment:
-- Positivo: satisfied, grateful
-- Neutral: informative
-- Negativo: frustrated, angry
-
-Ticket: {description}
-
-Output JSON with keys: category, sentiment"""
-        
         logger.info(f"Analyzing ticket: {description[:50]}...")
         
+        # Prompt mejorado - específico con criterios claros
+        prompt = f"""Analiza este ticket de soporte:
+
+"{description}"
+
+CATEGORÍA:
+- Técnico: errores, bugs, fallos de sistema, problemas de conexión/acceso, internet, aplicación no funciona
+- Facturación: pagos, facturas, cobros, precios, reembolsos, cargos, suscripciones
+- Comercial: consultas de ventas, información de productos/servicios, cotizaciones
+
+SENTIMIENTO (crucial detectar emociones):
+- Negativo: frustración, enojo, quejas, urgencia, problemas serios, expresiones de molestia ("increíble", "no puede ser", "días sin"), tono de reclamo
+- Positivo: satisfacción, agradecimiento, elogios, palabras como "excelente/genial/perfecto/super/mejor/bien/gracias"
+- Neutral: solo información, sin emoción clara
+
+Responde: categoria:X sentimiento:Y"""
+        
         # Llamada a la API de Hugging Face
-        response = hf_client.text_generation(
-            prompt,
-            model="mistralai/Mixtral-8x7B-Instruct-v0.1",
-            max_new_tokens=100,
-            temperature=0.1
-        )
+        headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
+        payload = {
+            "inputs": prompt,
+            "parameters": {
+                "max_new_tokens": 50,
+                "temperature": 0.2,
+                "return_full_text": False
+            }
+        }
         
-        # Extraer JSON de la respuesta
-        try:
-            # Buscar JSON en la respuesta
-            response_text = response.strip()
-            if '{' in response_text:
-                json_start = response_text.index('{')
-                json_end = response_text.rindex('}') + 1
-                json_str = response_text[json_start:json_end]
-                result_dict = json.loads(json_str)
-                
-                result = TicketAnalysis(
-                    category=result_dict.get("category", "Comercial"),
-                    sentiment=result_dict.get("sentiment", "Neutral")
-                )
-            else:
-                # Fallback si no hay JSON
-                result = TicketAnalysis(category="Comercial", sentiment="Neutral")
-                
-        except (json.JSONDecodeError, ValueError) as e:
-            logger.warning(f"Failed to parse JSON, using defaults: {e}")
-            result = TicketAnalysis(category="Comercial", sentiment="Neutral")
+        response = requests.post(HF_API_URL, headers=headers, json=payload, timeout=30)
         
+        if response.status_code != 200:
+            logger.warning(f"HF API returned {response.status_code}, using keyword fallback")
+            return analyze_with_keywords(description)
+        
+        result_text = response.json()[0].get('generated_text', '').lower()
+        logger.info(f"LLM response: {result_text[:100]}")
+        
+        # Extraer categoría - orden importa (negativo antes que neutral)
+        category = "Comercial"
+        if "técnico" in result_text or "tecnico" in result_text or "technical" in result_text:
+            category = "Técnico"
+        elif "facturación" in result_text or "facturacion" in result_text or "billing" in result_text or "pago" in result_text:
+            category = "Facturación"
+        elif "comercial" in result_text or "sales" in result_text or "venta" in result_text:
+            category = "Comercial"
+        
+        # Extraer sentimiento - priorizar negativo
+        sentiment = "Neutral"
+        if "negativo" in result_text or "negative" in result_text or "enojo" in result_text or "frustr" in result_text:
+            sentiment = "Negativo"
+        elif "positivo" in result_text or "positive" in result_text or "satisf" in result_text:
+            sentiment = "Positivo"
+        else:
+            sentiment = "Neutral"
+        
+        result = TicketAnalysis(category=category, sentiment=sentiment)
         logger.info(f"Analysis complete: {result.category}, {result.sentiment}")
         return result
         
     except Exception as e:
-        logger.error(f"LLM analysis failed: {e}")
-        raise LLMAnalysisError(f"LLM analysis error: {str(e)}")
+        logger.warning(f"LLM failed ({e}), using keyword fallback")
+        return analyze_with_keywords(description)
+
+
+def analyze_with_keywords(description: str) -> TicketAnalysis:
+    """Análisis basado en palabras clave con scoring"""
+    text = description.lower()
+    
+    # Keywords para categorías
+    tech_words = ["error", "bug", "crash", "fallo", "falla", "no funciona", "no carga", "no abre", 
+                  "problema técnico", "internet", "conexión", "conectar", "sistema caído", "sin servicio",
+                  "lento", "pantalla", "login", "contraseña", "acceso", "technical", "broken"]
+    billing_words = ["pago", "factura", "cobro", "cargo", "precio", "reembolso", "devoluci", "billing",
+                     "tarjeta", "cuenta", "suscripción", "plan", "costo", "monto", "dinero"]
+    
+    # Keywords para sentimientos - con intensificadores
+    negative_words = ["molesto", "horrible", "mal", "frustrado", "enojado", "inaceptable", "terrible",
+                      "pésimo", "desastr", "urgente", "increíble", "no puede ser", "días sin", "semanas",
+                      "nunca", "siempre falla", "harto", "cansado", "indignado", "reclamo", "queja",
+                      "disappointed", "angry", "worst", "awful", "hate"]
+    positive_words = ["excelente", "genial", "gracias", "perfecto", "contento", "feliz", "satisfecho",
+                      "funciona bien", "rápido", "eficiente", "bueno", "great", "excellent", "thanks",
+                      "amazing", "love", "fantastic", "bien", "super", "mejor", "mejores", "buen",
+                      "increíble trabajo", "fantástico", "maravilloso", "encantado", "agradecido"]
+    
+    # Scoring de categorías
+    tech_score = sum(1 for word in tech_words if word in text)
+    billing_score = sum(1 for word in billing_words if word in text)
+    
+    if tech_score > billing_score:
+        category = "Técnico"
+    elif billing_score > 0:
+        category = "Facturación"
+    else:
+        category = "Comercial"
+    
+    # Scoring de sentimiento con intensificadores
+    negative_score = sum(2 if word in text else 0 for word in negative_words)
+    positive_score = sum(2 if word in text else 0 for word in positive_words)
+    
+    # Intensificadores de negatividad
+    negative_intensifiers = ["increíble que", "no puede ser", "días sin", "semanas sin", "nunca funciona", "siempre falla", "!!!"]
+    if any(intensifier in text for intensifier in negative_intensifiers):
+        negative_score += 3
+    
+    # Intensificadores de positividad
+    positive_intensifiers = ["super", "muy bien", "los mejores", "el mejor", "muy bueno", "súper"]
+    if any(intensifier in text for intensifier in positive_intensifiers):
+        positive_score += 3
+    
+    if negative_score > positive_score and negative_score > 0:
+        sentiment = "Negativo"
+    elif positive_score > 0:
+        sentiment = "Positivo"
+    else:
+        sentiment = "Neutral"
+    
+    return TicketAnalysis(category=category, sentiment=sentiment)
 
 
 # Manejador de errores personalizado
