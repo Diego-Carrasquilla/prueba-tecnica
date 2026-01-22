@@ -9,10 +9,10 @@ export interface CreateTicketRequest {
 export interface CreateTicketResponse {
     id: string
     description: string
-    category: string
-    sentiment: string
+    category?: string
+    sentiment?: string
     processed: boolean
-    created_at: string
+    message: string
 }
 
 export interface ApiError {
@@ -41,7 +41,6 @@ async function sendWebhookNotification(ticket: CreateTicketResponse): Promise<vo
                     description: ticket.description,
                     category: ticket.category,
                     sentiment: ticket.sentiment,
-                    created_at: ticket.created_at,
                 },
                 timestamp: new Date().toISOString(),
             }),
@@ -53,11 +52,11 @@ async function sendWebhookNotification(ticket: CreateTicketResponse): Promise<vo
 }
 
 /**
- * Analiza y crea un nuevo ticket usando la API de Railway
+ * Crea un nuevo ticket usando la API de Railway
  */
 export async function createTicket(description: string): Promise<CreateTicketResponse> {
     try {
-        const response = await fetch(`${API_URL}/process-ticket`, {
+        const response = await fetch(`${API_URL}/tickets`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
