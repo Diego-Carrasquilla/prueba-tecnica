@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, Query
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator, ConfigDict
@@ -317,7 +317,7 @@ async def process_ticket(ticket: TicketRequest) -> TicketResponse:
 # Obtiene lista de tickets con filtros opcionales
 @app.get("/tickets", response_model=TicketListResponse, tags=["Tickets"])
 async def get_tickets(
-    limit: int = Field(default=100, ge=1, le=1000),
+    limit: int = Query(default=100, ge=1, le=1000),
     processed: Optional[bool] = None
 ) -> TicketListResponse:
     try:
