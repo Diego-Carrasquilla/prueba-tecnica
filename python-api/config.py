@@ -33,6 +33,7 @@ CORS_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:5173",
     "https://prueba-tecnica-git-main-diego-carrasquillas-projects.vercel.app",
+    "https://prueba-tecnica-seven-cyan.vercel.app",
     # "*"  # SECURITY: Wildcard disabled for production. Use specific domain instead.
 ]
 
