@@ -1,4 +1,5 @@
 import json
+import re
 from huggingface_hub import InferenceClient
 
 from models import TicketAnalysis
@@ -79,7 +80,25 @@ def analyze_ticket(description: str) -> TicketAnalysis:
         raise LLMAnalysisError(f"LLM service returned an error: {e}")
 
     try:
-        data = json.loads(raw_text)
+        # Normalizamos la salida del LLM para manejar casos con ```json``` o texto extra
+        cleaned_text = raw_text.strip()
+
+        # Quitar bloques de código tipo ```json ... ```
+        if cleaned_text.startswith("```"):
+            # Elimina la primera línea ```json o ```
+            cleaned_text = re.sub(r"^```[a-zA-Z]*\s*", "", cleaned_text)
+            # Corta en el siguiente ``` si existe
+            if "```" in cleaned_text:
+                cleaned_text = cleaned_text.split("```", 1)[0].strip()
+
+        # Si aún hay texto alrededor del JSON, extraer el primer bloque {...}
+        if not cleaned_text.startswith("{"):
+            start = cleaned_text.find("{")
+            end = cleaned_text.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                cleaned_text = cleaned_text[start : end + 1]
+
+        data = json.loads(cleaned_text)
 
         # Validación estricta de esquema
         if data.get("category") not in ["Técnico", "Facturación", "Comercial"]:
@@ -106,5 +125,5 @@ def analyze_ticket(description: str) -> TicketAnalysis:
         return result
 
     except (json.JSONDecodeError, KeyError, ValueError) as e:
-        logger.error(f"Invalid structured output from LLM: {raw_text}")
+        logger.error(f"Invalid structured output from LLM. Raw: {raw_text}")
         raise LLMAnalysisError("LLM returned invalid structured JSON")
