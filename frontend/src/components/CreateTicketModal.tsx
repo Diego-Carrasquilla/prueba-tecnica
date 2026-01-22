@@ -22,8 +22,8 @@ const CreateTicketModal: React.FC<CreateTicketModalProps> = ({ isOpen, onClose }
 
         setIsLoading(true)
         try {
-            const ticket = await createTicket(description)
-            toast.success(`✓ Ticket creado: ${ticket.category} - ${ticket.sentiment}`)
+            await createTicket(description)
+            toast.success('✓ Ticket enviado')
             setDescription('')
             onClose()
         } catch (error) {

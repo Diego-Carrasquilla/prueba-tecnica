@@ -95,16 +95,17 @@ const TicketCard: React.FC<TicketCardProps> = ({ ticket }) => {
                             {formatDate(ticket.created_at)}
                         </p>
                     </div>
-                    {ticket.processed && (
-                        <motion.span
-                            initial={{ scale: 0, rotate: -180 }}
-                            animate={{ scale: 1, rotate: 0 }}
-                            transition={{ delay: 0.3, type: "spring" }}
-                            className="px-3 py-1 bg-aqua-500/20 text-aqua-300 text-xs rounded-md font-medium border border-aqua-500/40 shadow-lg shadow-aqua-500/30"
-                        >
-                            ✓ Procesado
-                        </motion.span>
-                    )}
+                    <motion.span
+                        initial={{ scale: 0, rotate: -180 }}
+                        animate={{ scale: 1, rotate: 0 }}
+                        transition={{ delay: 0.3, type: "spring" }}
+                        className={`px-3 py-1 text-xs rounded-md font-medium border shadow-lg ${ticket.processed
+                                ? 'bg-aqua-500/20 text-aqua-300 border-aqua-500/40 shadow-aqua-500/30'
+                                : 'bg-yellow-500/20 text-yellow-300 border-yellow-500/40 shadow-yellow-500/30'
+                            }`}
+                    >
+                        {ticket.processed ? '✓ Procesado' : '⏳ Sin procesar'}
+                    </motion.span>
                 </div>
 
                 <motion.p
