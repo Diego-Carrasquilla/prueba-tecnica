@@ -9,8 +9,6 @@ import logging
 from dotenv import load_dotenv
 from supabase import create_client, Client
 from huggingface_hub import InferenceClient
-from langchain.prompts import PromptTemplate
-from langchain.output_parsers import PydanticOutputParser
 import json
 
 load_dotenv()
